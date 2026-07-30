@@ -82,11 +82,11 @@ It ships **zero** domain checks and has **zero** runtime dependencies. It has no
 ## Install
 
 ```bash
-npm install @r-seize/doctorkit
+npm install doctorkit-core
 # or
-pnpm add @r-seize/doctorkit
+pnpm add doctorkit-core
 # or
-yarn add @r-seize/doctorkit
+yarn add doctorkit-core
 ```
 
 Requires Node.js >= 18. Zero runtime dependencies.
