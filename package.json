@@ -1,5 +1,5 @@
 {
-  "name": "doctorkit",
+  "name": "@r-seize/doctorkit",
   "version": "0.1.0",
   "description": "Health-check engine for CLI tools — declare checks, get formatted diagnostics.",
   "license": "BSD-2-Clause",
