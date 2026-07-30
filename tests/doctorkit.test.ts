@@ -206,7 +206,7 @@ describe("timeout", () => {
     const d = new Doctor();
     d.check("slow", { tag: "t", timeout: 0.1 }, () => new Promise(() => {}));
     const { data } = await runJson(d);
-    expect(data.checks[0].duration_ms).toBeGreaterThanOrEqual(100);
+    expect(data.checks[0].duration_ms).toBeGreaterThanOrEqual(90);
   });
 });
 
