@@ -6,7 +6,7 @@
   "author": "r-seize",
   "repository": {
     "type": "git",
-    "url": "https://github.com/r-seize/doctorkit"
+    "url": "https://github.com/r-seize/doctorkit-ts"
   },
   "keywords": [
     "cli",
