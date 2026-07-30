@@ -1,0 +1,77 @@
+{
+  "name": "doctorkit",
+  "version": "0.1.0",
+  "description": "Health-check engine for CLI tools — declare checks, get formatted diagnostics.",
+  "license": "BSD-2-Clause",
+  "author": "r-seize",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/r-seize/doctorkit"
+  },
+  "keywords": [
+    "cli",
+    "doctor",
+    "diagnostics",
+    "healthcheck",
+    "devtools"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "sideEffects": false,
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "doctorkit": "./dist/cli/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./checks": {
+      "types": "./dist/checks/index.d.ts",
+      "import": "./dist/checks/index.js",
+      "require": "./dist/checks/index.cjs"
+    },
+    "./checks/network": {
+      "types": "./dist/checks/network.d.ts",
+      "import": "./dist/checks/network.js",
+      "require": "./dist/checks/network.cjs"
+    },
+    "./checks/env": {
+      "types": "./dist/checks/env.d.ts",
+      "import": "./dist/checks/env.js",
+      "require": "./dist/checks/env.cjs"
+    },
+    "./checks/filesystem": {
+      "types": "./dist/checks/filesystem.d.ts",
+      "import": "./dist/checks/filesystem.js",
+      "require": "./dist/checks/filesystem.cjs"
+    },
+    "./checks/process": {
+      "types": "./dist/checks/process.d.ts",
+      "import": "./dist/checks/process.js",
+      "require": "./dist/checks/process.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  }
+}
