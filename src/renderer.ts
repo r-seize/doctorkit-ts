@@ -139,6 +139,40 @@ export function printResult(
 }
 
 // ---------------------------------------------------------------------------
+// TAP version 13 renderer
+// ---------------------------------------------------------------------------
+
+export function renderTap(results: InternalResult[]): string {
+  const lines: string[] = ["TAP version 13", `1..${results.length}`];
+
+  results.forEach((r, i) => {
+    const n = i + 1;
+    const prefix = `${r.tag}/${r.name}`;
+
+    if (r.status === "skipped") {
+      const reason = r.skip_reason ? ` # SKIP ${r.skip_reason}` : " # SKIP";
+      lines.push(`ok ${n} - ${prefix}${reason}`);
+    } else if (r.status === "ok") {
+      lines.push(`ok ${n} - ${prefix}`);
+    } else {
+      // warn, fail, error
+      const passed = r.status === "warn";
+      lines.push(`${passed ? "ok" : "not ok"} ${n} - ${prefix}`);
+      lines.push("  ---");
+      if (r.status === "warn") lines.push(`  severity: warn`);
+      if (r.status === "error") lines.push(`  severity: error`);
+      lines.push(`  message: ${JSON.stringify(r.message)}`);
+      if (r.hint) lines.push(`  hint: ${JSON.stringify(r.hint)}`);
+      lines.push(`  duration_ms: ${Math.round(r.duration_ms)}`);
+      if (r.exc_stack) lines.push(`  stack: ${JSON.stringify(r.exc_stack)}`);
+      lines.push("  ...");
+    }
+  });
+
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
 // JUnit XML renderer
 // ---------------------------------------------------------------------------
 

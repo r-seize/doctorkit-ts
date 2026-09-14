@@ -314,6 +314,8 @@ describe("JSON output", () => {
     expect(data).toHaveProperty("checks");
     expect(data).toHaveProperty("summary");
     expect(data).toHaveProperty("exit_code");
+    expect(data).toHaveProperty("total_ms");
+    expect(typeof data.total_ms).toBe("number");
     expect(data.exit_code).toBe(code);
     expect(data.exit_code).toBe(1);
     expect(data.summary.ok).toBe(1);
@@ -322,6 +324,15 @@ describe("JSON output", () => {
     expect(auth.hint).toBe("set key");
     expect(auth.tag).toBe("auth");
     expect(typeof auth.duration_ms).toBe("number");
+  });
+
+  it("summary.error counts only exceptions, not regular fails", async () => {
+    const d = new Doctor();
+    d.check("a", { tag: "t" }, () => ({ status: "fail", message: "fail" }));
+    d.check("b", { tag: "t" }, () => { throw new Error("crash"); });
+    const { data } = await runJson(d);
+    expect(data.summary.fail).toBe(2);
+    expect(data.summary.error).toBe(1);
   });
 
   it("includes is_slow field", async () => {
@@ -712,6 +723,74 @@ describe("max_concurrency", () => {
     const { data } = await runJson(d, { max_concurrency: 4 });
     const s = Object.fromEntries(data.checks.map((c: { name: string; status: string }) => [c.name, c.status]));
     expect(s["child"]).toBe("skipped");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TAP output
+// ---------------------------------------------------------------------------
+
+describe("tap output", () => {
+  async function runTap(d: Doctor, opts: Parameters<Doctor["run"]>[0] = {}) {
+    const out = makeOut();
+    const code = await d.run({ tap: true, output: out, ...opts });
+    return { code, tap: out.text };
+  }
+
+  it("starts with TAP version 13 and plan line", async () => {
+    const d = new Doctor();
+    d.check("a", { tag: "t" }, () => ({ status: "ok", message: "ok" }));
+    d.check("b", { tag: "t" }, () => ({ status: "ok", message: "ok" }));
+    const { tap } = await runTap(d);
+    expect(tap).toContain("TAP version 13");
+    expect(tap).toContain("1..2");
+  });
+
+  it("ok check produces ok line", async () => {
+    const d = new Doctor();
+    d.check("my-check", { tag: "network" }, () => ({ status: "ok", message: "ok" }));
+    const { tap } = await runTap(d);
+    expect(tap).toContain("ok 1 - network/my-check");
+  });
+
+  it("fail check produces not ok line with YAML block", async () => {
+    const d = new Doctor();
+    d.check("broken", { tag: "auth" }, () => ({ status: "fail", message: "key missing", hint: "set it" }));
+    const { tap } = await runTap(d);
+    expect(tap).toContain("not ok 1 - auth/broken");
+    expect(tap).toContain("key missing");
+    expect(tap).toContain("set it");
+  });
+
+  it("skipped check produces ok with SKIP directive", async () => {
+    const d = new Doctor();
+    d.check("dep", { tag: "t" }, () => ({ status: "fail", message: "fail" }));
+    d.check("child", { tag: "t", depends_on: ["dep"] }, () => ({ status: "ok", message: "ok" }));
+    const { tap } = await runTap(d);
+    expect(tap).toContain("# SKIP");
+  });
+
+  it("warn check produces ok line with YAML block", async () => {
+    const d = new Doctor();
+    d.check("c", { tag: "t" }, () => ({ status: "warn", message: "somewhat slow" }));
+    const { tap } = await runTap(d);
+    expect(tap).toContain("ok 1 - t/c");
+    expect(tap).toContain("severity: warn");
+    expect(tap).toContain("somewhat slow");
+  });
+
+  it("exit code still correct in tap mode", async () => {
+    const d = new Doctor();
+    d.check("c", { tag: "t" }, () => ({ status: "fail", message: "bad" }));
+    const { code } = await runTap(d);
+    expect(code).toBe(1);
+  });
+
+  it("plan count matches actual checks", async () => {
+    const d = new Doctor();
+    for (let i = 0; i < 5; i++) d.check(`c${i}`, { tag: "t" }, () => ({ status: "ok", message: "ok" }));
+    const { tap } = await runTap(d);
+    expect(tap).toContain("1..5");
   });
 });
 

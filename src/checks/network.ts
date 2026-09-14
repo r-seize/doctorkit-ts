@@ -1,6 +1,7 @@
 import * as http from "node:http";
 import * as https from "node:https";
 import * as net from "node:net";
+import * as tls from "node:tls";
 import * as dns from "node:dns/promises";
 import type { CheckFn, CheckResult } from "../types.js";
 
@@ -113,4 +114,69 @@ export function dnsCheck(hostname: string): CheckFn {
       };
     }
   };
+}
+
+export function sslCertCheck(
+  hostname: string,
+  options: { port?: number; minDaysRemaining?: number } = {},
+): CheckFn {
+  const port = options.port ?? 443;
+  const minDaysRemaining = options.minDaysRemaining ?? 14;
+
+  return (): Promise<CheckResult> =>
+    new Promise((resolve) => {
+      const socket = tls.connect(
+        { host: hostname, port, servername: hostname, timeout: 10000 },
+        () => {
+          const cert = socket.getPeerCertificate();
+          socket.destroy();
+
+          if (!cert || Object.keys(cert).length === 0) {
+            resolve({ status: "fail", message: `${hostname}: no certificate returned` });
+            return;
+          }
+
+          const expiry = new Date(cert.valid_to);
+          const daysRemaining = Math.floor(
+            (expiry.getTime() - Date.now()) / (1000 * 60 * 60 * 24),
+          );
+
+          if (daysRemaining < 0) {
+            resolve({
+              status: "fail",
+              message: `${hostname}: certificate expired ${Math.abs(daysRemaining)} day(s) ago`,
+              hint: `Renew the SSL certificate for ${hostname}`,
+            });
+          } else if (daysRemaining < minDaysRemaining) {
+            resolve({
+              status: "warn",
+              message: `${hostname}: certificate expires in ${daysRemaining} day(s)`,
+              hint: `Renew the SSL certificate for ${hostname} soon`,
+            });
+          } else {
+            resolve({
+              status: "ok",
+              message: `${hostname}: certificate valid, expires in ${daysRemaining} day(s)`,
+            });
+          }
+        },
+      );
+
+      socket.on("timeout", () => {
+        socket.destroy();
+        resolve({
+          status: "fail",
+          message: `${hostname}:${port} TLS connection timed out`,
+          hint: `Check that ${hostname}:${port} is accessible`,
+        });
+      });
+
+      socket.on("error", (err) => {
+        resolve({
+          status: "fail",
+          message: `${hostname}: TLS error - ${err.message}`,
+          hint: `Check that ${hostname}:${port} is accessible and has a valid certificate`,
+        });
+      });
+    });
 }

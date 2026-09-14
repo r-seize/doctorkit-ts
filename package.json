@@ -1,6 +1,6 @@
 {
   "name": "doctorkit-core",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Health-check engine for CLI tools - declare checks, get formatted diagnostics.",
   "license": "BSD-2-Clause",
   "author": "r-seize",
@@ -16,7 +16,7 @@
     "devtools"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=18.15.0"
   },
   "sideEffects": false,
   "type": "module",

@@ -66,7 +66,7 @@ function scan(root: string): { detected: Set<string>; envVars: string[] } {
 }
 
 function generate(detected: Set<string>, envVars: string[]): string {
-  const lines: string[] = ['import { Doctor } from "doctorkit";'];
+  const lines: string[] = ['import { Doctor } from "doctorkit-core";'];
 
   const needsEnv = detected.has("dotenv") || envVars.length > 0;
   if (needsEnv) {

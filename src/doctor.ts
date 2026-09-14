@@ -23,6 +23,7 @@ import {
   printFixSection,
   printResult,
   renderJunitXml,
+  renderTap,
 } from "./renderer.js";
 
 export class Doctor {
@@ -139,6 +140,7 @@ export class Doctor {
       ok: allResults.filter((r) => r.status === "ok").length,
       warn: allResults.filter((r) => r.status === "warn").length,
       fail: allResults.filter((r) => r.status === "fail" || r.status === "error").length,
+      error: allResults.filter((r) => r.status === "error").length,
       skipped: allResults.filter((r) => r.status === "skipped").length,
       slow: allResults.filter((r) => r.is_slow).length,
     };
@@ -171,7 +173,7 @@ export class Doctor {
     const out: OutputStream = options.output ?? process.stdout;
     const maxConcurrency = options.max_concurrency ?? 1;
     const useColor =
-      !options.json && !options.junit_xml && Boolean(out.isTTY);
+      !options.json && !options.junit_xml && !options.tap && Boolean(out.isTTY);
     const useSpinner = useColor && !options.quiet && maxConcurrency === 1;
 
     const writeln = (s: string) => out.write(s + "\n");
@@ -288,7 +290,7 @@ export class Doctor {
         done.set(cd.name, r);
         allResults.push(r);
 
-        if (!options.json && !options.junit_xml && !options.quiet) {
+        if (!options.json && !options.junit_xml && !options.tap && !options.quiet) {
           if (cd.tag !== currentTag) {
             currentTag = cd.tag;
             writeln("\n" + colorize(`[${currentTag}]`, useColor, BOLD));
@@ -302,6 +304,7 @@ export class Doctor {
 
     const okN = allResults.filter((r) => r.status === "ok").length;
     const warnN = allResults.filter((r) => r.status === "warn").length;
+    const errorN = allResults.filter((r) => r.status === "error").length;
     const failN = allResults.filter(
       (r) => r.status === "fail" || r.status === "error",
     ).length;
@@ -336,14 +339,17 @@ export class Doctor {
         fix_status: r.fix_result?.status ?? null,
         fix_message: r.fix_result?.message ?? null,
       })),
-      summary: { ok: okN, warn: warnN, fail: failN, skipped: skipN, slow: slowN },
+      summary: { ok: okN, warn: warnN, fail: failN, error: errorN, skipped: skipN, slow: slowN },
       exit_code: exitCode,
+      total_ms: totalMs,
     };
 
     if (options.junit_xml) {
       writeln(renderJunitXml(allResults));
     } else if (options.json) {
       writeln(JSON.stringify(payload, null, 2));
+    } else if (options.tap) {
+      writeln(renderTap(allResults));
     } else {
       const parts: string[] = [];
       if (okN) parts.push(colorize(`${okN} ok`, useColor, COLORS.ok));

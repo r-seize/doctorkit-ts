@@ -1,4 +1,4 @@
-export { httpCheck, tcpCheck, dnsCheck } from "./network.js";
+export { httpCheck, tcpCheck, dnsCheck, sslCertCheck } from "./network.js";
 export { envCheck, envfileCheck, envfileVarsCheck } from "./env.js";
-export { dirExistsCheck, fileExistsCheck, writableCheck } from "./filesystem.js";
+export { dirExistsCheck, fileExistsCheck, writableCheck, diskSpaceCheck } from "./filesystem.js";
 export { commandCheck } from "./process.js";

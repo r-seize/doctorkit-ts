@@ -105,6 +105,8 @@ export interface RunOptions {
   json_file?: string;
   /** Write the JUnit XML to this file in addition to stdout output. */
   junit_file?: string;
+  /** Emit TAP version 13 output instead of human-readable output. */
+  tap?: boolean;
 }
 
 /** Summary counts from a completed run. */
@@ -112,6 +114,7 @@ export interface RunSummary {
   ok: number;
   warn: number;
   fail: number;
+  error: number;
   skipped: number;
   slow: number;
 }
@@ -151,8 +154,9 @@ export interface JsonOutput {
     fix_status: string | null;
     fix_message: string | null;
   }>;
-  summary: { ok: number; warn: number; fail: number; skipped: number; slow: number };
+  summary: { ok: number; warn: number; fail: number; error: number; skipped: number; slow: number };
   exit_code: number;
+  total_ms: number;
 }
 
 // ---------------------------------------------------------------------------

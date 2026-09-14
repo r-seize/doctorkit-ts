@@ -4,7 +4,6 @@
 
 **Also available in Python** -> [doctorkit-py](https://github.com/r-seize/doctorkit-py)
 
----
 
 ## Table of contents
 
@@ -33,6 +32,7 @@
   - [Quiet mode](#quiet-mode)
   - [JSON output](#json-output)
   - [JUnit XML output](#junit-xml-output)
+  - [TAP output](#tap-output)
 - [Exit codes](#exit-codes)
 - [Listing checks without running](#listing-checks-without-running)
 - [Fix callbacks](#fix-callbacks)
@@ -41,7 +41,6 @@
 - [API reference](#api-reference)
 - [Also available in Python](#also-available-in-python)
 
----
 
 ## What is doctorkit?
 
@@ -77,7 +76,6 @@ It ships **zero** domain checks and has **zero** runtime dependencies. It has no
 2 ok, 1 fail, 1 skipped - 347ms total
 ```
 
----
 
 ## Install
 
@@ -89,14 +87,22 @@ pnpm add doctorkit-core
 yarn add doctorkit-core
 ```
 
-Requires Node.js >= 18. Zero runtime dependencies.
+Requires Node.js >= 18.15.0. Zero runtime dependencies.
 
----
+## Also available in Python
+
+The Python implementation is spec-identical: same output format, same JSON structure, same exit codes, same API surface.
+
+-> **[doctorkit-py - Python package](https://github.com/r-seize/doctorkit-py)**
+
+```bash
+pip install doctorkit-core
+```
 
 ## Quick start
 
 ```typescript
-import { Doctor } from "doctorkit";
+import { Doctor } from "doctorkit-core";
 import process from "node:process";
 import dns from "node:dns/promises";
 import fs from "node:fs";
@@ -152,7 +158,6 @@ doctor
   .then((code) => process.exit(code));
 ```
 
----
 
 ## How it works
 
@@ -162,7 +167,6 @@ doctor
 4. Results are printed live grouped by tag with colored symbols. At the end, a summary line shows counts and total duration.
 5. The return value of `run()` is an integer exit code you can pass to `process.exit()`.
 
----
 
 ## Check registration
 
@@ -213,7 +217,6 @@ A check function may return (sync or async):
 
 The `hint` field appears indented below the check line - use it for actionable fix instructions.
 
----
 
 ## Running checks
 
@@ -235,6 +238,7 @@ const exitCode = await doctor.run({
   global_timeout: 30,             // skip remaining after 30s wall-clock
   max_concurrency: 4,             // run up to 4 checks in parallel
   output: process.stdout,         // where to write (defaults to stdout)
+  tap: false,                     // TAP version 13 output
 });
 ```
 
@@ -368,8 +372,8 @@ await doctor.run({ json: true, json_file: "results.json" });
 Use `runDetailed()` to get structured data from the run instead of just an exit code:
 
 ```typescript
-import { Doctor } from "doctorkit";
-import type { RunResult } from "doctorkit";
+import { Doctor } from "doctorkit-core";
+import type { RunResult } from "doctorkit-core";
 
 const result: RunResult = await doctor.runDetailed();
 
@@ -389,7 +393,6 @@ process.exit(result.exit_code);
 
 Accepts exactly the same options as `run()`. Both produce identical output - the only difference is what they return.
 
----
 
 ## Output formats
 
@@ -463,12 +466,35 @@ Badges are colored only when writing to a TTY. In non-TTY mode (CI, pipes, redir
     "ok": 1,
     "warn": 0,
     "fail": 1,
+    "error": 0,
     "skipped": 1,
     "slow": 0
   },
-  "exit_code": 1
+  "exit_code": 1,
+  "total_ms": 347
 }
 ```
+
+`summary.error` counts checks that threw an unexpected exception (a subset of `summary.fail`). `total_ms` is the total wall-clock time of the run in milliseconds.
+
+### TAP output
+
+`tap: true` emits [TAP version 13](https://testanything.org/tap-version-13-specification.html) - consumable by any TAP-compatible reporter (`tap-spec`, `tap-reporter`, Jest, etc.).
+
+```
+TAP version 13
+1..3
+ok 1 - network/network-reachable
+not ok 2 - auth/api-key-set
+  ---
+  message: "ANTHROPIC_API_KEY is not set"
+  hint: "Run: export ANTHROPIC_API_KEY=sk-ant-..."
+  duration_ms: 12
+  ...
+ok 3 - auth/api-key-format # SKIP depends on 'api-key-set' which failed
+```
+
+Each test line uses the `tag/check-name` format. Skipped checks include a `# SKIP` directive with the reason. Failed and warn checks include a YAML block with `message`, `hint`, `duration_ms`, and optionally `stack` (for error status).
 
 ### JUnit XML output
 
@@ -490,7 +516,6 @@ Badges are colored only when writing to a TTY. In non-TTY mode (CI, pipes, redir
 
 Checks are grouped into `<testsuite>` elements by tag. Skipped checks include the cascade reason. Failed checks include the message and traceback when available.
 
----
 
 ## Exit codes
 
@@ -500,7 +525,6 @@ Checks are grouped into `<testsuite>` elements by tag. Skipped checks include th
 | `1` | At least one check failed |
 | `2` | At least one check threw an unexpected exception (bug in the check itself) |
 
----
 
 ## Listing checks without running
 
@@ -518,7 +542,6 @@ for (const c of infos) {
 }
 ```
 
----
 
 ## Fix callbacks
 
@@ -527,7 +550,7 @@ Register a repair function alongside any check. When you call `doctor.run({ fix:
 Fixes always run sequentially after the main check loop, regardless of `max_concurrency`. This keeps system modifications predictable and output unambiguous.
 
 ```typescript
-import { Doctor } from "doctorkit";
+import { Doctor } from "doctorkit-core";
 
 const doctor = new Doctor();
 
@@ -594,17 +617,16 @@ In JSON mode (`json: true`), each check entry gains two additional fields:
 
 The `has_fix` field on `CheckInfo` (returned by `listChecks()`) indicates whether a fix function is registered.
 
----
 
 ## Built-in check library
 
-`doctorkit/checks` is an optional, zero-dependency library of ready-made check factories built entirely on Node.js built-in modules. Import only what you need - nothing is auto-imported when you `import { Doctor } from "doctorkit"`.
+`doctorkit-core/checks` is an optional, zero-dependency library of ready-made check factories built entirely on Node.js built-in modules. Import only what you need - nothing is auto-imported when you `import { Doctor } from "doctorkit-core"`.
 
 ### network
 
 ```typescript
-import { httpCheck, tcpCheck, dnsCheck } from "doctorkit/checks/network";
-// or import everything: import { httpCheck, tcpCheck, dnsCheck } from "doctorkit/checks";
+import { httpCheck, tcpCheck, dnsCheck, sslCertCheck } from "doctorkit-core/checks/network";
+// or import everything: import { httpCheck, tcpCheck, dnsCheck, sslCertCheck } from "doctorkit-core/checks";
 
 // HTTP HEAD request - verifies URL responds with expected status
 doctor.check("api-health", { tag: "network" }, httpCheck("https://api.example.com/health"));
@@ -616,12 +638,16 @@ doctor.check("redis",    { tag: "deps" }, tcpCheck("localhost", 6379, { timeout:
 
 // DNS resolution
 doctor.check("dns-api", { tag: "network" }, dnsCheck("api.example.com"));
+
+// SSL certificate validity - warns when expiry is within minDaysRemaining (default 14)
+doctor.check("ssl-api",  { tag: "network" }, sslCertCheck("api.example.com"));
+doctor.check("ssl-site", { tag: "network" }, sslCertCheck("example.com", { minDaysRemaining: 30 }));
 ```
 
 ### env
 
 ```typescript
-import { envCheck, envfileCheck, envfileVarsCheck } from "doctorkit/checks/env";
+import { envCheck, envfileCheck, envfileVarsCheck } from "doctorkit-core/checks/env";
 
 // Verify an env var is set, optionally matching a regex
 doctor.check("api-key",        { tag: "env" }, envCheck("ANTHROPIC_API_KEY"));
@@ -637,17 +663,21 @@ doctor.check("env-vars", { tag: "env" }, envfileVarsCheck(".env.example", { envF
 ### filesystem
 
 ```typescript
-import { dirExistsCheck, fileExistsCheck, writableCheck } from "doctorkit/checks/filesystem";
+import { dirExistsCheck, fileExistsCheck, writableCheck, diskSpaceCheck } from "doctorkit-core/checks/filesystem";
 
 doctor.check("logs-dir",  { tag: "filesystem" }, dirExistsCheck("logs"));
 doctor.check("config",    { tag: "filesystem" }, fileExistsCheck("config.yaml"));
 doctor.check("tmp-write", { tag: "filesystem" }, writableCheck("/tmp"));
+
+// Disk space - fails when free space falls below minFreeGb (default 1 GB)
+doctor.check("disk-home", { tag: "filesystem" }, diskSpaceCheck());             // checks home dir, 1 GB min
+doctor.check("disk-data", { tag: "filesystem" }, diskSpaceCheck("/data", { minFreeGb: 5 }));
 ```
 
 ### process
 
 ```typescript
-import { commandCheck } from "doctorkit/checks/process";
+import { commandCheck } from "doctorkit-core/checks/process";
 
 // Verify a command exists on PATH, optionally enforce a minimum version
 doctor.check("node",   { tag: "tools" }, commandCheck("node",   { minVersion: "18.0" }));
@@ -657,14 +687,13 @@ doctor.check("git",    { tag: "tools" }, commandCheck("git",   { minVersion: "2.
 
 `commandCheck` uses `which` / `where` to locate the command and `child_process.execFileSync` to read its version output. No external dependencies required.
 
----
 
 ## CLI: doctorkit init
 
 `doctorkit init` scans a project directory, detects what it contains, and generates a ready-to-run `doctor.ts` with starter checks already wired up.
 
 ```bash
-npm install doctorkit
+npm install doctorkit-core
 
 # Scan current directory and write doctor.ts
 npx doctorkit init
@@ -688,7 +717,6 @@ npx tsx doctor.ts           # run all checks
 npx tsx doctor.ts --json    # JSON output for CI
 ```
 
----
 
 ## API reference
 
@@ -696,7 +724,6 @@ npx tsx doctor.ts --json    # JSON output for CI
 
 Creates a new, empty doctor instance. Each CLI command or test suite typically creates its own.
 
----
 
 ### `doctor.check(name, fn)`
 ### `doctor.check(name, options, fn)`
@@ -721,7 +748,6 @@ doctor.check("my-check", {
 });
 ```
 
----
 
 ### `doctor.add(name, fn, options?)`
 
@@ -733,13 +759,11 @@ for (const port of [5432, 6379]) {
 }
 ```
 
----
 
 ### `doctor.listChecks() -> CheckInfo[]`
 
 Returns metadata for all registered checks without running them.
 
----
 
 ### `await doctor.run(options?) -> number`
 
@@ -762,21 +786,21 @@ Executes all checks and returns an exit code. Full options:
 | `output` | `OutputStream` | `process.stdout` | Where to write output |
 | `json_file` | `string` | - | Write JSON results to this file path, independently of stdout format |
 | `junit_file` | `string` | - | Write JUnit XML to this file path, independently of stdout format |
+| `tap` | `boolean` | `false` | Emit TAP version 13 output instead of human-readable output |
+| `tap` | `boolean` | `false` | Emit TAP version 13 output instead of human-readable output |
 
----
 
 ### `await doctor.runDetailed(options?) -> RunResult`
 
 Same as `run()` but returns a `RunResult` object instead of a bare exit code. Accepts the same options.
 
 ```typescript
-import type { RunResult } from "doctorkit";
+import type { RunResult } from "doctorkit-core";
 
 const result: RunResult = await doctor.runDetailed({ verbose: true });
 process.exit(result.exit_code);
 ```
 
----
 
 ### `RunResult`
 
@@ -789,7 +813,6 @@ interface RunResult {
 }
 ```
 
----
 
 ### `RunSummary`
 
@@ -797,13 +820,13 @@ interface RunResult {
 interface RunSummary {
   ok: number;
   warn: number;
-  fail: number;
+  fail: number;   // includes error count
+  error: number;  // subset of fail: checks that threw an unexpected exception
   skipped: number;
   slow: number;
 }
 ```
 
----
 
 ### `CheckRecord`
 
@@ -822,7 +845,6 @@ interface CheckRecord {
 }
 ```
 
----
 
 ### `CheckResult`
 
@@ -834,12 +856,11 @@ interface CheckResult {
 }
 ```
 
----
 
 ### `FixResult`
 
 ```typescript
-import type { FixResult } from "doctorkit";
+import type { FixResult } from "doctorkit-core";
 
 interface FixResult {
   status: "fixed" | "fix_failed";
@@ -849,26 +870,11 @@ interface FixResult {
 
 Returned by fix functions. A thrown exception is automatically caught and recorded as `fix_error`.
 
----
 
 ### `CheckInfo`
 
 Returned by `listChecks()`. Read-only object with all check metadata fields, including `has_fix: boolean` which is `true` when a fix function is registered for that check.
 
----
-
-## Also available in Python
-
-The Python implementation is spec-identical: same output format, same JSON structure, same exit codes, same API surface.
-
--> **[doctorkit-py - Python package](https://github.com/r-seize/doctorkit-py)**
-
-```bash
-pip install doctorkit
-```
-
-
----
 
 ## License
 

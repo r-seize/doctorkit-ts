@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import * as os from "node:os";
 import type { CheckFn, CheckResult } from "../types.js";
 
 export function dirExistsCheck(path: string): CheckFn {
@@ -50,6 +51,33 @@ export function writableCheck(path: string): CheckFn {
         status: "fail",
         message: `${path} is not writable`,
         hint: `Run: chmod u+w ${path}`,
+      };
+    }
+  };
+}
+
+export function diskSpaceCheck(
+  dirPath: string = os.homedir(),
+  options: { minFreeGb?: number } = {},
+): CheckFn {
+  const minFreeGb = options.minFreeGb ?? 1;
+
+  return (): CheckResult => {
+    try {
+      const stat = fs.statfsSync(dirPath);
+      const freeGb = (stat.bavail * stat.bsize) / 1024 ** 3;
+      if (freeGb < minFreeGb) {
+        return {
+          status: "fail",
+          message: `${dirPath}: ${freeGb.toFixed(1)} GB free (minimum ${minFreeGb} GB required)`,
+          hint: `Free up disk space on the volume containing ${dirPath}`,
+        };
+      }
+      return { status: "ok", message: `${dirPath}: ${freeGb.toFixed(1)} GB free` };
+    } catch (err) {
+      return {
+        status: "fail",
+        message: `Cannot check disk space at ${dirPath}: ${err instanceof Error ? err.message : String(err)}`,
       };
     }
   };

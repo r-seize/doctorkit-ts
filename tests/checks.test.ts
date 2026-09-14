@@ -4,8 +4,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 import { envCheck, envfileCheck, envfileVarsCheck } from "../src/checks/env.js";
-import { dirExistsCheck, fileExistsCheck, writableCheck } from "../src/checks/filesystem.js";
+import { dirExistsCheck, fileExistsCheck, writableCheck, diskSpaceCheck } from "../src/checks/filesystem.js";
 import { commandCheck } from "../src/checks/process.js";
+import { sslCertCheck } from "../src/checks/network.js";
 
 // ---------------------------------------------------------------------------
 // env checks
@@ -246,6 +247,46 @@ describe("writableCheck", () => {
     expect(result.status).toBe("fail");
     expect(result.message).toContain("does not exist");
   });
+});
+
+// ---------------------------------------------------------------------------
+// diskSpaceCheck
+// ---------------------------------------------------------------------------
+
+describe("diskSpaceCheck", () => {
+  it("ok with default path and 0 min free GB (always passes)", async () => {
+    const result = await diskSpaceCheck(os.tmpdir(), { minFreeGb: 0 })();
+    expect(result.status).toBe("ok");
+    expect(result.message).toContain("GB free");
+  });
+
+  it("fail when minFreeGb is impossibly high", async () => {
+    const result = await diskSpaceCheck(os.tmpdir(), { minFreeGb: 9_999_999 })();
+    expect(result.status).toBe("fail");
+    expect(result.message).toContain("minimum");
+    expect(result.hint).toContain("disk space");
+  });
+
+  it("fail on non-existent path", async () => {
+    const result = await diskSpaceCheck("/nonexistent/path/xyz")();
+    expect(result.status).toBe("fail");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sslCertCheck
+// ---------------------------------------------------------------------------
+
+describe("sslCertCheck", () => {
+  it("returns a CheckFn (function)", () => {
+    const fn = sslCertCheck("example.com");
+    expect(typeof fn).toBe("function");
+  });
+
+  it("fails gracefully on invalid hostname", async () => {
+    const result = await sslCertCheck("__invalid_host_that_does_not_exist__.example")();
+    expect(result.status).toBe("fail");
+  }, 15000);
 });
 
 // ---------------------------------------------------------------------------

@@ -25,7 +25,7 @@ describe("cmdInit", () => {
     const target = path.join(tmpDir, "doctor.ts");
     expect(fs.existsSync(target)).toBe(true);
     const content = fs.readFileSync(target, "utf-8");
-    expect(content).toContain('import { Doctor } from "doctorkit"');
+    expect(content).toContain('import { Doctor } from "doctorkit-core"');
     expect(content).toContain("const doctor = new Doctor()");
   });
 
