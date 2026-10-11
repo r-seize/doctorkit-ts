@@ -173,6 +173,94 @@ export function renderTap(results: InternalResult[]): string {
 }
 
 // ---------------------------------------------------------------------------
+// GitHub Actions workflow command annotations
+// ---------------------------------------------------------------------------
+
+// Escaping rules per the GitHub Actions workflow commands spec:
+// https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions
+function ghaEscapeData(s: string): string {
+  return s.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
+}
+
+function ghaEscapeProperty(s: string): string {
+  return ghaEscapeData(s).replace(/:/g, "%3A").replace(/,/g, "%2C");
+}
+
+/**
+ * Render a single `::error::`/`::warning::` workflow command for a
+ * fail/warn/error result, so it surfaces as a GitHub Actions annotation.
+ * Returns `null` for statuses that don't warrant an annotation.
+ */
+export function ghaAnnotation(r: InternalResult): string | null {
+  if (r.status !== "fail" && r.status !== "warn" && r.status !== "error") return null;
+
+  const command = r.status === "warn" ? "warning" : "error";
+  const title = ghaEscapeProperty(`${r.tag}/${r.name}`);
+  const body = r.hint ? `${r.message} — ${r.hint}` : r.message;
+
+  return `::${command} title=${title}::${ghaEscapeData(body)}`;
+}
+
+// ---------------------------------------------------------------------------
+// Markdown summary renderer
+// ---------------------------------------------------------------------------
+
+const MARKDOWN_LABELS: Record<CheckStatus, string> = {
+  ok: "OK",
+  warn: "WARN",
+  fail: "FAIL",
+  skipped: "SKIPPED",
+  error: "ERROR",
+};
+
+function escapeMarkdownCell(s: string): string {
+  return s.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+}
+
+/**
+ * Render check results as a Markdown table plus a bold summary line -
+ * suitable for `$GITHUB_STEP_SUMMARY` or a PR comment body.
+ */
+export function renderMarkdown(results: InternalResult[], totalMs: number): string {
+  const lines: string[] = [
+    "## doctorkit results",
+    "",
+    "| Status | Check | Tag | Duration | Message |",
+    "|---|---|---|---|---|",
+  ];
+
+  for (const r of results) {
+    const status = MARKDOWN_LABELS[r.status] ?? r.status.toUpperCase();
+    const duration = r.duration_ms ? `${Math.round(r.duration_ms)}ms` : "-";
+    const message =
+      r.status === "skipped"
+        ? r.skip_reason ?? ""
+        : r.hint
+          ? `${r.message} — ${r.hint}`
+          : r.message;
+
+    lines.push(
+      `| ${status} | ${escapeMarkdownCell(r.name)} | ${escapeMarkdownCell(r.tag)} | ${duration} | ${escapeMarkdownCell(message)} |`,
+    );
+  }
+
+  const okN = results.filter((r) => r.status === "ok").length;
+  const warnN = results.filter((r) => r.status === "warn").length;
+  const failN = results.filter((r) => r.status === "fail" || r.status === "error").length;
+  const skipN = results.filter((r) => r.status === "skipped").length;
+
+  const parts: string[] = [];
+  if (okN) parts.push(`${okN} ok`);
+  if (warnN) parts.push(`${warnN} warn`);
+  if (failN) parts.push(`${failN} fail`);
+  if (skipN) parts.push(`${skipN} skipped`);
+
+  lines.push("", `**${parts.join(", ") || "0 checks"} - ${totalMs}ms total**`);
+
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
 // JUnit XML renderer
 // ---------------------------------------------------------------------------
 

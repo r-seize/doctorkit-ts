@@ -101,6 +101,41 @@ export function tcpCheck(
     });
 }
 
+export function portAvailableCheck(
+  port: number,
+  options: { host?: string } = {},
+): CheckFn {
+  const host = options.host ?? "0.0.0.0";
+
+  return (): Promise<CheckResult> =>
+    new Promise((resolve) => {
+      const server = net.createServer();
+
+      server.once("error", (err: NodeJS.ErrnoException) => {
+        if (err.code === "EADDRINUSE") {
+          resolve({
+            status: "fail",
+            message: `Port ${port} is already in use`,
+            hint: `Stop the process using port ${port}, or choose a different port`,
+          });
+        } else {
+          resolve({
+            status: "fail",
+            message: `Cannot bind port ${port}: ${err.message}`,
+          });
+        }
+      });
+
+      server.once("listening", () => {
+        server.close(() => {
+          resolve({ status: "ok", message: `Port ${port} is available` });
+        });
+      });
+
+      server.listen(port, host);
+    });
+}
+
 export function dnsCheck(hostname: string): CheckFn {
   return async (): Promise<CheckResult> => {
     try {

@@ -42,6 +42,14 @@ export interface CheckOptions {
   slow_threshold_ms?: number;
   /** Optional repair function. Run automatically when `run({ fix: true })` is set and this check fails. */
   fix?: FixFn;
+  /**
+   * Whether this check is registered for the run. A boolean, or a function
+   * evaluated at run time (e.g. `() => process.env.CI === undefined`).
+   * A disabled check is treated as if it were never registered - it does not
+   * run, does not appear in results, and dependents on it are unaffected.
+   * Default: `true`.
+   */
+  enabled?: boolean | (() => boolean);
 }
 
 /** Read-only metadata returned by `Doctor.listChecks()`. */
@@ -107,6 +115,19 @@ export interface RunOptions {
   junit_file?: string;
   /** Emit TAP version 13 output instead of human-readable output. */
   tap?: boolean;
+  /**
+   * Emit a `::error::`/`::warning::` GitHub Actions workflow command for
+   * every fail/warn/error check, alongside the normal output format.
+   * Ignored when `json`, `junit_xml`, or `tap` is set.
+   */
+  github_actions?: boolean;
+  /**
+   * Emit a Markdown results table instead of human-readable output -
+   * suitable for `$GITHUB_STEP_SUMMARY` or a PR comment body.
+   */
+  markdown?: boolean;
+  /** Write the Markdown table to this file in addition to stdout output. */
+  markdown_file?: string;
 }
 
 /** Summary counts from a completed run. */
@@ -117,6 +138,8 @@ export interface RunSummary {
   error: number;
   skipped: number;
   slow: number;
+  /** Total number of checks that ran or were skipped (ok + warn + fail + skipped). */
+  total: number;
 }
 
 /** Public result for a single check, returned by `runDetailed()`. */
@@ -154,7 +177,15 @@ export interface JsonOutput {
     fix_status: string | null;
     fix_message: string | null;
   }>;
-  summary: { ok: number; warn: number; fail: number; error: number; skipped: number; slow: number };
+  summary: {
+    ok: number;
+    warn: number;
+    fail: number;
+    error: number;
+    skipped: number;
+    slow: number;
+    total: number;
+  };
   exit_code: number;
   total_ms: number;
 }
@@ -181,6 +212,7 @@ export interface CheckDef {
   retry_delay: number;
   slow_threshold_ms: number | undefined;
   fix_fn: FixFn | undefined;
+  enabled: boolean | (() => boolean);
 }
 
 export interface InternalFixResult {

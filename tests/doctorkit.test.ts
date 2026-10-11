@@ -302,6 +302,54 @@ describe("filtering", () => {
 });
 
 // ---------------------------------------------------------------------------
+// enabled
+// ---------------------------------------------------------------------------
+
+describe("enabled", () => {
+  it("runs the check when enabled is omitted (default true)", async () => {
+    const d = new Doctor();
+    d.check("a", { tag: "t" }, () => ({ status: "ok", message: "ok" }));
+    const { data } = await runJson(d);
+    expect(data.checks).toHaveLength(1);
+  });
+
+  it("excludes the check when enabled: false", async () => {
+    const d = new Doctor();
+    d.check("a", { tag: "t", enabled: false }, () => ({ status: "ok", message: "ok" }));
+    const { data } = await runJson(d);
+    expect(data.checks).toHaveLength(0);
+  });
+
+  it("evaluates a callable enabled at run time", async () => {
+    const d = new Doctor();
+    let flag = false;
+    d.check("a", { tag: "t", enabled: () => flag }, () => ({ status: "ok", message: "ok" }));
+    const { data: dataOff } = await runJson(d);
+    expect(dataOff.checks).toHaveLength(0);
+    flag = true;
+    const { data: dataOn } = await runJson(d);
+    expect(dataOn.checks).toHaveLength(1);
+  });
+
+  it("does not block dependents when a dependency is disabled", async () => {
+    const d = new Doctor();
+    d.check("dep", { tag: "t", enabled: false }, () => ({ status: "fail", message: "fail" }));
+    d.check("child", { tag: "t", depends_on: ["dep"] }, () => ({ status: "ok", message: "ok" }));
+    const { data } = await runJson(d);
+    expect(data.checks).toHaveLength(1);
+    expect(data.checks[0].name).toBe("child");
+    expect(data.checks[0].status).toBe("ok");
+  });
+
+  it("works the same way through add()", async () => {
+    const d = new Doctor();
+    d.add("a", () => ({ status: "ok", message: "ok" }), { tag: "t", enabled: false });
+    const { data } = await runJson(d);
+    expect(data.checks).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // JSON output
 // ---------------------------------------------------------------------------
 
@@ -320,6 +368,7 @@ describe("JSON output", () => {
     expect(data.exit_code).toBe(1);
     expect(data.summary.ok).toBe(1);
     expect(data.summary.fail).toBe(1);
+    expect(data.summary.total).toBe(2);
     const auth = data.checks.find((c: { name: string }) => c.name === "auth");
     expect(auth.hint).toBe("set key");
     expect(auth.tag).toBe("auth");
@@ -795,6 +844,128 @@ describe("tap output", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Markdown output
+// ---------------------------------------------------------------------------
+
+describe("markdown output", () => {
+  async function runMarkdown(d: Doctor, opts: Parameters<Doctor["run"]>[0] = {}) {
+    const out = makeOut();
+    const code = await d.run({ markdown: true, output: out, ...opts });
+    return { code, md: out.text };
+  }
+
+  it("starts with a heading and table header", async () => {
+    const d = new Doctor();
+    d.check("a", { tag: "t" }, () => ({ status: "ok", message: "ok" }));
+    const { md } = await runMarkdown(d);
+    expect(md).toContain("## doctorkit results");
+    expect(md).toContain("| Status | Check | Tag | Duration | Message |");
+  });
+
+  it("includes a row per check with its status", async () => {
+    const d = new Doctor();
+    d.check("net", { tag: "network" }, () => ({ status: "ok", message: "reachable" }));
+    d.check("auth", { tag: "auth" }, () => ({ status: "fail", message: "missing", hint: "set it" }));
+    const { md } = await runMarkdown(d);
+    expect(md).toContain("| OK | net | network |");
+    expect(md).toContain("| FAIL | auth | auth |");
+    expect(md).toContain("missing — set it");
+  });
+
+  it("ends with a bold summary line", async () => {
+    const d = new Doctor();
+    d.check("a", { tag: "t" }, () => ({ status: "ok", message: "ok" }));
+    d.check("b", { tag: "t" }, () => ({ status: "fail", message: "bad" }));
+    const { md } = await runMarkdown(d);
+    expect(md).toMatch(/\*\*1 ok, 1 fail - \d+ms total\*\*/);
+  });
+
+  it("exit code is still correct", async () => {
+    const d = new Doctor();
+    d.check("a", { tag: "t" }, () => ({ status: "fail", message: "bad" }));
+    const { code } = await runMarkdown(d);
+    expect(code).toBe(1);
+  });
+
+  it("produces no ANSI escape codes", async () => {
+    const d = new Doctor();
+    d.check("a", { tag: "t" }, () => ({ status: "ok", message: "ok" }));
+    const { md } = await runMarkdown(d);
+    expect(md).not.toContain("\x1b[");
+  });
+
+  it("markdown_file writes the table independently of the markdown flag", async () => {
+    const d = new Doctor();
+    d.check("a", { tag: "t" }, () => ({ status: "ok", message: "ok" }));
+    const tmpFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "doctorkit-md-")), "summary.md");
+    try {
+      await d.run({ markdown_file: tmpFile, output: makeOut() });
+      const content = fs.readFileSync(tmpFile, "utf-8");
+      expect(content).toContain("## doctorkit results");
+    } finally {
+      fs.rmSync(path.dirname(tmpFile), { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GitHub Actions annotations
+// ---------------------------------------------------------------------------
+
+describe("github_actions annotations", () => {
+  async function runGha(d: Doctor, opts: Parameters<Doctor["run"]>[0] = {}) {
+    const out = makeOut();
+    const code = await d.run({ github_actions: true, output: out, ...opts });
+    return { code, text: out.text };
+  }
+
+  it("emits ::error:: for a fail check", async () => {
+    const d = new Doctor();
+    d.check("broken", { tag: "auth" }, () => ({ status: "fail", message: "key missing", hint: "set it" }));
+    const { text } = await runGha(d);
+    expect(text).toContain("::error title=auth/broken::key missing — set it");
+  });
+
+  it("emits ::warning:: for a warn check", async () => {
+    const d = new Doctor();
+    d.check("c", { tag: "t" }, () => ({ status: "warn", message: "somewhat slow" }));
+    const { text } = await runGha(d);
+    expect(text).toContain("::warning title=t/c::somewhat slow");
+  });
+
+  it("does not emit an annotation for ok checks", async () => {
+    const d = new Doctor();
+    d.check("c", { tag: "t" }, () => ({ status: "ok", message: "fine" }));
+    const { text } = await runGha(d);
+    expect(text).not.toContain("::error");
+    expect(text).not.toContain("::warning");
+  });
+
+  it("still prints normal human output alongside annotations", async () => {
+    const d = new Doctor();
+    d.check("c", { tag: "t" }, () => ({ status: "fail", message: "bad" }));
+    const { text, code } = await runGha(d);
+    expect(text).toContain("[FAIL] c: bad");
+    expect(code).toBe(1);
+  });
+
+  it("is suppressed in json/tap/junit_xml mode", async () => {
+    const d = new Doctor();
+    d.check("c", { tag: "t" }, () => ({ status: "fail", message: "bad" }));
+    const out = makeOut();
+    await d.run({ github_actions: true, json: true, output: out });
+    expect(out.text).not.toContain("::error");
+  });
+
+  it("escapes newlines and percent signs in the message", async () => {
+    const d = new Doctor();
+    d.check("c", { tag: "t" }, () => ({ status: "fail", message: "line1\nline2 100%" }));
+    const { text } = await runGha(d);
+    expect(text).toContain("::error title=t/c::line1%0Aline2 100%25");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // JUnit XML output
 // ---------------------------------------------------------------------------
 
@@ -1029,6 +1200,7 @@ describe("runDetailed()", () => {
     expect(result.exit_code).toBe(1);
     expect(result.summary.ok).toBe(1);
     expect(result.summary.fail).toBe(1);
+    expect(result.summary.total).toBe(2);
     expect(result.checks).toHaveLength(2);
     expect(typeof result.total_ms).toBe("number");
   });

@@ -33,6 +33,8 @@
   - [JSON output](#json-output)
   - [JUnit XML output](#junit-xml-output)
   - [TAP output](#tap-output)
+  - [GitHub Actions annotations](#github-actions-annotations)
+  - [Markdown output](#markdown-output)
 - [Exit codes](#exit-codes)
 - [Listing checks without running](#listing-checks-without-running)
 - [Fix callbacks](#fix-callbacks)
@@ -201,6 +203,7 @@ for (const port of [5432, 6379, 9200]) {
 | `retry_delay` | `number` | `1` | Seconds to wait between retries |
 | `slow_threshold_ms` | `number` | - | Flag this check as slow if it passes but takes longer than this many ms. Overrides any global threshold. |
 | `fix` | `FixFn` | - | Optional repair function. Called automatically when `run({ fix: true })` and this check fails. See [Fix callbacks](#fix-callbacks). |
+| `enabled` | `boolean \| (() => boolean)` | `true` | Whether this check is registered for the run. A disabled check behaves as if it were never registered - it doesn't run, doesn't appear in results, and doesn't block dependents. Useful for conditional checks, e.g. `enabled: () => process.env.CI === undefined`. |
 
 ### Return values
 
@@ -239,6 +242,9 @@ const exitCode = await doctor.run({
   max_concurrency: 4,             // run up to 4 checks in parallel
   output: process.stdout,         // where to write (defaults to stdout)
   tap: false,                     // TAP version 13 output
+  github_actions: false,          // emit ::error::/::warning:: annotations
+  markdown: false,                // Markdown results table instead of human output
+  markdown_file: "summary.md",    // also write the Markdown table to this file
 });
 ```
 
@@ -363,9 +369,12 @@ await doctor.run({ json_file: "results.json", junit_file: "results.xml" });
 
 // json_file + json stdout output are independent
 await doctor.run({ json: true, json_file: "results.json" });
+
+// Write a Markdown step summary without changing stdout format
+await doctor.run({ markdown_file: process.env.GITHUB_STEP_SUMMARY });
 ```
 
-`json_file` and `junit_file` are fully independent of the `json` and `junit_xml` stdout options. All combinations are valid.
+`json_file`, `junit_file`, and `markdown_file` are fully independent of the `json`, `junit_xml`, and `markdown` stdout options. All combinations are valid.
 
 ### Programmatic access: runDetailed()
 
@@ -468,7 +477,8 @@ Badges are colored only when writing to a TTY. In non-TTY mode (CI, pipes, redir
     "fail": 1,
     "error": 0,
     "skipped": 1,
-    "slow": 0
+    "slow": 0,
+    "total": 3
   },
   "exit_code": 1,
   "total_ms": 347
@@ -515,6 +525,40 @@ Each test line uses the `tag/check-name` format. Skipped checks include a `# SKI
 ```
 
 Checks are grouped into `<testsuite>` elements by tag. Skipped checks include the cascade reason. Failed checks include the message and traceback when available.
+
+### GitHub Actions annotations
+
+`github_actions: true` emits a [workflow command](https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions) line for every `fail`, `error`, or `warn` check, so it surfaces as an inline annotation on the PR diff and in the job summary - in addition to the normal human output.
+
+```
+::error title=auth/api-key-set::ANTHROPIC_API_KEY is not set — Run: export ANTHROPIC_API_KEY=sk-ant-...
+
+[auth]
+  [FAIL] api-key-set: ANTHROPIC_API_KEY is not set (12ms)
+    -> Run: export ANTHROPIC_API_KEY=sk-ant-...
+```
+
+`fail`/`error` checks emit `::error::`, `warn` checks emit `::warning::`. Ignored when combined with `json`, `junit_xml`, or `tap` - those formats are self-contained.
+
+### Markdown output
+
+`markdown: true` emits a Markdown results table instead of human-readable output - suitable for a PR comment body. `markdown_file` writes the same table to a file independently of the stdout format, which pairs naturally with GitHub's `$GITHUB_STEP_SUMMARY`:
+
+```typescript
+await doctor.run({ markdown_file: process.env.GITHUB_STEP_SUMMARY });
+```
+
+```markdown
+## doctorkit results
+
+| Status | Check | Tag | Duration | Message |
+|---|---|---|---|---|
+| OK | network-reachable | network | 12ms | internet reachable |
+| FAIL | api-key-set | auth | 12ms | ANTHROPIC_API_KEY is not set — Run: export ANTHROPIC_API_KEY=sk-ant-... |
+| SKIPPED | api-key-format | auth | - | depends on 'api-key-set' which failed |
+
+**1 ok, 1 fail, 1 skipped - 347ms total**
+```
 
 
 ## Exit codes
@@ -625,8 +669,8 @@ The `has_fix` field on `CheckInfo` (returned by `listChecks()`) indicates whethe
 ### network
 
 ```typescript
-import { httpCheck, tcpCheck, dnsCheck, sslCertCheck } from "doctorkit-core/checks/network";
-// or import everything: import { httpCheck, tcpCheck, dnsCheck, sslCertCheck } from "doctorkit-core/checks";
+import { httpCheck, tcpCheck, dnsCheck, sslCertCheck, portAvailableCheck } from "doctorkit-core/checks/network";
+// or import everything: import { httpCheck, tcpCheck, dnsCheck, sslCertCheck, portAvailableCheck } from "doctorkit-core/checks";
 
 // HTTP HEAD request - verifies URL responds with expected status
 doctor.check("api-health", { tag: "network" }, httpCheck("https://api.example.com/health"));
@@ -642,6 +686,9 @@ doctor.check("dns-api", { tag: "network" }, dnsCheck("api.example.com"));
 // SSL certificate validity - warns when expiry is within minDaysRemaining (default 14)
 doctor.check("ssl-api",  { tag: "network" }, sslCertCheck("api.example.com"));
 doctor.check("ssl-site", { tag: "network" }, sslCertCheck("example.com", { minDaysRemaining: 30 }));
+
+// Port availability - verifies a local port is free (opposite of tcpCheck)
+doctor.check("port-3000", { tag: "network" }, portAvailableCheck(3000));
 ```
 
 ### env
@@ -663,7 +710,7 @@ doctor.check("env-vars", { tag: "env" }, envfileVarsCheck(".env.example", { envF
 ### filesystem
 
 ```typescript
-import { dirExistsCheck, fileExistsCheck, writableCheck, diskSpaceCheck } from "doctorkit-core/checks/filesystem";
+import { dirExistsCheck, fileExistsCheck, writableCheck, diskSpaceCheck, fileContentCheck } from "doctorkit-core/checks/filesystem";
 
 doctor.check("logs-dir",  { tag: "filesystem" }, dirExistsCheck("logs"));
 doctor.check("config",    { tag: "filesystem" }, fileExistsCheck("config.yaml"));
@@ -672,20 +719,27 @@ doctor.check("tmp-write", { tag: "filesystem" }, writableCheck("/tmp"));
 // Disk space - fails when free space falls below minFreeGb (default 1 GB)
 doctor.check("disk-home", { tag: "filesystem" }, diskSpaceCheck());             // checks home dir, 1 GB min
 doctor.check("disk-data", { tag: "filesystem" }, diskSpaceCheck("/data", { minFreeGb: 5 }));
+
+// File content - verifies a file matches (or doesn't match) a pattern
+doctor.check("version-pin", { tag: "filesystem" }, fileContentCheck("package.json", /"doctorkit-core": "\^?\d/));
+doctor.check("no-todo",     { tag: "filesystem" }, fileContentCheck("src/index.ts", /TODO/, { shouldMatch: false }));
 ```
 
 ### process
 
 ```typescript
-import { commandCheck } from "doctorkit-core/checks/process";
+import { commandCheck, gitStatusCheck } from "doctorkit-core/checks/process";
 
 // Verify a command exists on PATH, optionally enforce a minimum version
 doctor.check("node",   { tag: "tools" }, commandCheck("node",   { minVersion: "18.0" }));
 doctor.check("docker", { tag: "tools" }, commandCheck("docker"));
 doctor.check("git",    { tag: "tools" }, commandCheck("git",   { minVersion: "2.0" }));
+
+// Working tree clean - fails when `git status --porcelain` reports changes
+doctor.check("git-clean", { tag: "tools" }, gitStatusCheck());
 ```
 
-`commandCheck` uses `which` / `where` to locate the command and `child_process.execFileSync` to read its version output. No external dependencies required.
+`commandCheck` uses `which` / `where` to locate the command and `child_process.execFileSync` to read its version output. `gitStatusCheck` shells out to `git status --porcelain`. No external dependencies required.
 
 
 ## CLI: doctorkit init
@@ -743,6 +797,7 @@ doctor.check("my-check", {
   retries: 0,
   retry_delay: 1,
   slow_threshold_ms: 500,
+  enabled: true,
 }, async () => {
   return { status: "ok", message: "all good" };
 });
@@ -787,7 +842,9 @@ Executes all checks and returns an exit code. Full options:
 | `json_file` | `string` | - | Write JSON results to this file path, independently of stdout format |
 | `junit_file` | `string` | - | Write JUnit XML to this file path, independently of stdout format |
 | `tap` | `boolean` | `false` | Emit TAP version 13 output instead of human-readable output |
-| `tap` | `boolean` | `false` | Emit TAP version 13 output instead of human-readable output |
+| `github_actions` | `boolean` | `false` | Emit `::error::`/`::warning::` GitHub Actions annotations alongside the normal output |
+| `markdown` | `boolean` | `false` | Emit a Markdown results table instead of human-readable output |
+| `markdown_file` | `string` | - | Write the Markdown table to this file path, independently of stdout format |
 
 
 ### `await doctor.runDetailed(options?) -> RunResult`
@@ -824,6 +881,7 @@ interface RunSummary {
   error: number;  // subset of fail: checks that threw an unexpected exception
   skipped: number;
   slow: number;
+  total: number;  // ok + warn + fail + skipped
 }
 ```
 

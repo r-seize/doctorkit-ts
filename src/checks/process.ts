@@ -50,6 +50,35 @@ export function commandCheck(
   };
 }
 
+export function gitStatusCheck(options: { cwd?: string } = {}): CheckFn {
+  return (): CheckResult => {
+    try {
+      const raw = cp.execFileSync("git", ["status", "--porcelain"], {
+        encoding: "utf8",
+        timeout: 5000,
+        cwd: options.cwd,
+        stdio: ["ignore", "pipe", "pipe"],
+      }) as string;
+
+      const changed = raw.split("\n").filter((l) => l.trim().length > 0);
+      if (changed.length === 0) {
+        return { status: "ok", message: "working tree clean" };
+      }
+      return {
+        status: "fail",
+        message: `${changed.length} uncommitted change(s)`,
+        hint: "Run: git status",
+      };
+    } catch (err) {
+      return {
+        status: "fail",
+        message: `git status failed: ${err instanceof Error ? err.message : String(err)}`,
+        hint: "Ensure git is installed and this directory is a git repository",
+      };
+    }
+  };
+}
+
 function findCommand(cmd: string): string | null {
   try {
     const result = cp.execFileSync(

@@ -20,11 +20,17 @@ import {
   CLEAR_LINE,
   COLORS,
   colorize,
+  ghaAnnotation,
   printFixSection,
   printResult,
   renderJunitXml,
+  renderMarkdown,
   renderTap,
 } from "./renderer.js";
+
+function isEnabled(e: boolean | (() => boolean)): boolean {
+  return typeof e === "function" ? e() : e;
+}
 
 export class Doctor {
   private defs: CheckDef[] = [];
@@ -65,6 +71,7 @@ export class Doctor {
       retry_delay: opts.retry_delay ?? 1,
       slow_threshold_ms: opts.slow_threshold_ms,
       fix_fn: opts.fix,
+      enabled: opts.enabled ?? true,
     });
   }
 
@@ -89,6 +96,7 @@ export class Doctor {
       retry_delay: options.retry_delay ?? 1,
       slow_threshold_ms: options.slow_threshold_ms,
       fix_fn: options.fix,
+      enabled: options.enabled ?? true,
     });
   }
 
@@ -143,6 +151,7 @@ export class Doctor {
       error: allResults.filter((r) => r.status === "error").length,
       skipped: allResults.filter((r) => r.status === "skipped").length,
       slow: allResults.filter((r) => r.is_slow).length,
+      total: allResults.length,
     };
 
     const checks: CheckRecord[] = allResults.map((r) => ({
@@ -173,12 +182,16 @@ export class Doctor {
     const out: OutputStream = options.output ?? process.stdout;
     const maxConcurrency = options.max_concurrency ?? 1;
     const useColor =
-      !options.json && !options.junit_xml && !options.tap && Boolean(out.isTTY);
+      !options.json &&
+      !options.junit_xml &&
+      !options.tap &&
+      !options.markdown &&
+      Boolean(out.isTTY);
     const useSpinner = useColor && !options.quiet && maxConcurrency === 1;
 
     const writeln = (s: string) => out.write(s + "\n");
 
-    let checks = [...this.defs];
+    let checks = this.defs.filter((c) => isEnabled(c.enabled));
     if (options.only) {
       const onlySet = new Set(options.only);
       checks = checks.filter((c) => onlySet.has(c.tag));
@@ -290,12 +303,19 @@ export class Doctor {
         done.set(cd.name, r);
         allResults.push(r);
 
-        if (!options.json && !options.junit_xml && !options.tap && !options.quiet) {
-          if (cd.tag !== currentTag) {
-            currentTag = cd.tag;
-            writeln("\n" + colorize(`[${currentTag}]`, useColor, BOLD));
+        if (!options.json && !options.junit_xml && !options.tap && !options.markdown) {
+          if (options.github_actions) {
+            const annotation = ghaAnnotation(r);
+            if (annotation) writeln(annotation);
           }
-          printResult(r, { verbose: options.verbose ?? false, useColor, writeln });
+
+          if (!options.quiet) {
+            if (cd.tag !== currentTag) {
+              currentTag = cd.tag;
+              writeln("\n" + colorize(`[${currentTag}]`, useColor, BOLD));
+            }
+            printResult(r, { verbose: options.verbose ?? false, useColor, writeln });
+          }
         }
       }
     }
@@ -339,7 +359,15 @@ export class Doctor {
         fix_status: r.fix_result?.status ?? null,
         fix_message: r.fix_result?.message ?? null,
       })),
-      summary: { ok: okN, warn: warnN, fail: failN, error: errorN, skipped: skipN, slow: slowN },
+      summary: {
+        ok: okN,
+        warn: warnN,
+        fail: failN,
+        error: errorN,
+        skipped: skipN,
+        slow: slowN,
+        total: allResults.length,
+      },
       exit_code: exitCode,
       total_ms: totalMs,
     };
@@ -350,6 +378,8 @@ export class Doctor {
       writeln(JSON.stringify(payload, null, 2));
     } else if (options.tap) {
       writeln(renderTap(allResults));
+    } else if (options.markdown) {
+      writeln(renderMarkdown(allResults, totalMs));
     } else {
       const parts: string[] = [];
       if (okN) parts.push(colorize(`${okN} ok`, useColor, COLORS.ok));
@@ -369,6 +399,9 @@ export class Doctor {
     }
     if (options.junit_file) {
       fs.writeFileSync(options.junit_file, renderJunitXml(allResults), "utf-8");
+    }
+    if (options.markdown_file) {
+      fs.writeFileSync(options.markdown_file, renderMarkdown(allResults, totalMs), "utf-8");
     }
 
     return { exitCode, allResults, totalMs };

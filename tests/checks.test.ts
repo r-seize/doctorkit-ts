@@ -4,9 +4,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 import { envCheck, envfileCheck, envfileVarsCheck } from "../src/checks/env.js";
-import { dirExistsCheck, fileExistsCheck, writableCheck, diskSpaceCheck } from "../src/checks/filesystem.js";
-import { commandCheck } from "../src/checks/process.js";
-import { sslCertCheck } from "../src/checks/network.js";
+import { dirExistsCheck, fileExistsCheck, writableCheck, diskSpaceCheck, fileContentCheck } from "../src/checks/filesystem.js";
+import { commandCheck, gitStatusCheck } from "../src/checks/process.js";
+import { sslCertCheck, portAvailableCheck } from "../src/checks/network.js";
+import * as net from "node:net";
+import * as cp from "node:child_process";
 
 // ---------------------------------------------------------------------------
 // env checks
@@ -274,6 +276,51 @@ describe("diskSpaceCheck", () => {
 });
 
 // ---------------------------------------------------------------------------
+// fileContentCheck
+// ---------------------------------------------------------------------------
+
+describe("fileContentCheck", () => {
+  let tmpFile: string;
+
+  beforeEach(() => {
+    tmpFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "doctorkit-fc-")), "a.txt");
+    fs.writeFileSync(tmpFile, "hello world\nversion: 1.2.3\n");
+  });
+
+  afterEach(() => {
+    fs.rmSync(path.dirname(tmpFile), { recursive: true, force: true });
+  });
+
+  it("ok when the pattern matches (default shouldMatch: true)", () => {
+    const result = fileContentCheck(tmpFile, /version: \d+\.\d+\.\d+/)();
+    expect(result.status).toBe("ok");
+  });
+
+  it("fail when the pattern does not match", () => {
+    const result = fileContentCheck(tmpFile, /nonexistent-pattern/)();
+    expect(result.status).toBe("fail");
+    expect(result.message).toContain("does not contain");
+  });
+
+  it("ok when shouldMatch: false and pattern is absent", () => {
+    const result = fileContentCheck(tmpFile, /forbidden/, { shouldMatch: false })();
+    expect(result.status).toBe("ok");
+  });
+
+  it("fail when shouldMatch: false and pattern is present", () => {
+    const result = fileContentCheck(tmpFile, /hello/, { shouldMatch: false })();
+    expect(result.status).toBe("fail");
+    expect(result.message).toContain("forbidden");
+  });
+
+  it("fail when the file does not exist", () => {
+    const result = fileContentCheck("/nonexistent/path/xyz", /a/)();
+    expect(result.status).toBe("fail");
+    expect(result.message).toContain("Cannot read");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // sslCertCheck
 // ---------------------------------------------------------------------------
 
@@ -290,8 +337,79 @@ describe("sslCertCheck", () => {
 });
 
 // ---------------------------------------------------------------------------
+// portAvailableCheck
+// ---------------------------------------------------------------------------
+
+describe("portAvailableCheck", () => {
+  it("ok on a free port", async () => {
+    const result = await portAvailableCheck(58391)();
+    expect(result.status).toBe("ok");
+    expect(result.message).toContain("available");
+  });
+
+  it("fail when the port is already bound", async () => {
+    const server = net.createServer();
+    await new Promise<void>((resolve) => server.listen(58392, "0.0.0.0", resolve));
+    try {
+      const result = await portAvailableCheck(58392)();
+      expect(result.status).toBe("fail");
+      expect(result.message).toContain("already in use");
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // process checks
 // ---------------------------------------------------------------------------
+
+describe("gitStatusCheck", () => {
+  it("returns a CheckFn (function)", () => {
+    expect(typeof gitStatusCheck()).toBe("function");
+  });
+
+  it("ok on a clean repo", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "doctorkit-git-"));
+    try {
+      cp.execFileSync("git", ["init", "-q"], { cwd: tmpDir });
+      cp.execFileSync("git", ["config", "user.email", "test@test.com"], { cwd: tmpDir });
+      cp.execFileSync("git", ["config", "user.name", "test"], { cwd: tmpDir });
+      fs.writeFileSync(path.join(tmpDir, "a.txt"), "hello");
+      cp.execFileSync("git", ["add", "."], { cwd: tmpDir });
+      cp.execFileSync("git", ["commit", "-q", "-m", "init"], { cwd: tmpDir });
+
+      const result = gitStatusCheck({ cwd: tmpDir })();
+      expect(result.status).toBe("ok");
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("fail when there are uncommitted changes", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "doctorkit-git-"));
+    try {
+      cp.execFileSync("git", ["init", "-q"], { cwd: tmpDir });
+      fs.writeFileSync(path.join(tmpDir, "a.txt"), "hello");
+
+      const result = gitStatusCheck({ cwd: tmpDir })();
+      expect(result.status).toBe("fail");
+      expect(result.message).toContain("uncommitted change");
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("fail when not a git repository", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "doctorkit-nogit-"));
+    try {
+      const result = gitStatusCheck({ cwd: tmpDir })();
+      expect(result.status).toBe("fail");
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("commandCheck", () => {
   it("ok when command exists on PATH", () => {

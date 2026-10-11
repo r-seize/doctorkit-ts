@@ -82,3 +82,37 @@ export function diskSpaceCheck(
     }
   };
 }
+
+export function fileContentCheck(
+  path: string,
+  pattern: RegExp,
+  options: { shouldMatch?: boolean } = {},
+): CheckFn {
+  const shouldMatch = options.shouldMatch ?? true;
+
+  return (): CheckResult => {
+    let content: string;
+    try {
+      content = fs.readFileSync(path, "utf-8");
+    } catch (err) {
+      return {
+        status: "fail",
+        message: `Cannot read ${path}: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+
+    const matched = pattern.test(content);
+    if (matched === shouldMatch) {
+      return {
+        status: "ok",
+        message: shouldMatch ? `${path} matches ${pattern}` : `${path} does not match ${pattern}`,
+      };
+    }
+    return {
+      status: "fail",
+      message: shouldMatch
+        ? `${path} does not contain expected pattern ${pattern}`
+        : `${path} contains forbidden pattern ${pattern}`,
+    };
+  };
+}
